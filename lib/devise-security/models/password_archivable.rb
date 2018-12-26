@@ -39,7 +39,11 @@ module Devise
       # @return [false] if disabled or not previously used
       def password_archive_included?
         return false unless max_old_passwords > 0
-        old_passwords_including_cur_change = old_passwords.order(:id).reverse_order.limit(max_old_passwords).pluck(:encrypted_password)
+        if deny_old_passwords.class == Integer
+          old_passwords_including_cur_change = old_passwords.order(:id).reverse_order.limit(max_old_passwords).pluck(:encrypted_password)
+        elsif deny_old_passwords.class == ActiveSupport::Duration
+          old_passwords_including_cur_change = old_passwords.where("created_at >= :duration", duration: deny_old_passwords.seconds.ago).order(:id).reverse_order.pluck(:encrypted_password)
+        end
         old_passwords_including_cur_change << encrypted_password_was # include most recent change in list, but don't save it yet!
         old_passwords_including_cur_change.any? do |old_password|
           self.class.new(encrypted_password: old_password).valid_password?(password)
@@ -64,7 +68,12 @@ module Devise
       def archive_password
         if max_old_passwords > 0
           old_passwords.create!(encrypted_password: encrypted_password_was) if encrypted_password_was.present?
-          old_passwords.order(:id).reverse_order.offset(max_old_passwords).destroy_all
+          if deny_old_passwords.class == Integer
+            old_passwords.order(:id).reverse_order.offset(max_old_passwords).destroy_all
+          elsif deny_old_passwords.class == ActiveSupport::Duration
+            old_passwords.where("created_at < :duration", duration: deny_old_passwords.seconds.ago).destroy_all
+          end
+          
         else
           old_passwords.destroy_all
         end
